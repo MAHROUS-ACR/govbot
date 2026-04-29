@@ -2,12 +2,12 @@ import hashlib
 from datetime import datetime
 
 from firebase_config import db
-from sources import etenders, search_google
+from sources import collect_all_sources
 from parser import classify, extract_company, extract_date
 
 
 # ======================
-# KEYWORDS
+# KEYWORDS (فلترة إضافية احتياطية)
 # ======================
 KEYWORDS = [
     "مقاولات",
@@ -16,15 +16,22 @@ KEYWORDS = [
     "بناء",
     "صيانة",
     "معدات",
-    "خامات"
+    "خامات",
+    "tender",
+    "project",
+    "procurement",
+    "bid"
 ]
 
 
 # ======================
-# CHECK VALIDITY
+# VALIDATION
 # ======================
 def is_valid(text):
-    return any(k in text for k in KEYWORDS)
+    if not text:
+        return False
+    text_lower = text.lower()
+    return any(k.lower() in text_lower for k in KEYWORDS)
 
 
 # ======================
@@ -41,20 +48,7 @@ def collect():
     print("\n🚀 STEP 1: COLLECTING DATA")
     print("=" * 40)
 
-    et = etenders()
-    print("🏛️ ETENDERS RAW OUTPUT:")
-    print(et)
-
-    gg = search_google()
-    print("\n🌐 GOOGLE RAW OUTPUT:")
-    print(gg)
-
-    all_data = []
-
-    if et:
-        all_data += et
-    if gg:
-        all_data += gg
+    all_data = collect_all_sources()
 
     print("\n📥 TOTAL COLLECTED:", len(all_data))
     print("=" * 40)
@@ -101,6 +95,7 @@ def save(data):
         doc_id = generate_id(title)
         ref = db.collection("tenders").document(doc_id)
 
+        # منع التكرار
         if ref.get().exists:
             print("🔁 DUPLICATE:", title[:70])
             continue
