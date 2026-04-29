@@ -9,38 +9,63 @@ HEADERS = {"User-Agent": "Mozilla/5.0"}
 # =========================
 GOV_SITES = [
     "https://etenders.gov.eg",
-    "https://www.fbo.gov",
     "https://www.tendersinfo.com",
-    "https://www.devbusiness.com",
     "https://www.dgmarket.com/tenders",
+    "https://www.devbusiness.com",
+    "https://www.globaltenders.com",
 ]
 
 # =========================
-# 📰 RSS News Sources (Construction + Economy)
+# 📰 RSS News (Construction + Economy)
 # =========================
 RSS_FEEDS = [
     "https://feeds.bbci.co.uk/news/rss.xml",
     "https://www.constructionnews.co.uk/feed/",
     "https://www.globalconstructionreview.com/feed/",
     "https://www.devex.com/feed/news",
-    "https://www.worldbank.org/en/news/all?format=rss",
 ]
 
 # =========================
-# 🌍 Arabic + Local News
+# 🌍 Arabic News
 # =========================
 ARABIC_FEEDS = [
-    "https://www.albawaba.com/rss.xml",
-    "https://www.masrawy.com/rss/rssfeeds",
     "https://www.youm7.com/rss",
+    "https://www.masrawy.com/rss/rssfeeds",
 ]
 
 # =========================
-# 📌 Scraper for HTML sites
+# 📰 Extra News Sites (HTML)
+# =========================
+NEWS_SITES = [
+    "https://www.albawaba.com/rss.xml",
+    "https://www.thenationalnews.com/arc/outboundfeeds/rss/",
+    "https://www.arabnews.com/rss.xml",
+]
+
+# =========================
+# 💬 Forums
+# =========================
+FORUM_SITES = [
+    "https://www.skyscrapercity.com/forums/construction.123/",
+    "https://www.eng-tips.com/threadminder.cfm",
+]
+
+# =========================
+# 📱 Social Media Searches
+# =========================
+SOCIAL_SITES = [
+    "https://twitter.com/search?q=construction%20tender",
+    "https://twitter.com/search?q=مناقصات%20مقاولات",
+    "https://www.linkedin.com/jobs/search/?keywords=construction%20tender",
+]
+
+# =========================
+# 🔧 HTTP Scraper
 # =========================
 def scrape_site(url):
     try:
         print(f"🌐 SCRAPING: {url}")
+
         res = requests.get(url, headers=HEADERS, timeout=10)
         soup = BeautifulSoup(res.text, "html.parser")
 
@@ -50,18 +75,18 @@ def scrape_site(url):
             title = a.get_text(strip=True)
             link = a.get("href")
 
-            if title and len(title) > 10:
+            if title and len(title) > 8:
                 results.append({
                     "title": title,
                     "link": link,
                     "source": url
                 })
 
-        print(f"📥 FOUND: {len(results)} from {url}")
+        print(f"📥 FOUND: {len(results)}")
         return results
 
     except Exception as e:
-        print(f"❌ ERROR scraping {url}: {e}")
+        print(f"❌ SCRAPE ERROR {url}: {e}")
         return []
 
 # =========================
@@ -70,14 +95,15 @@ def scrape_site(url):
 def get_rss(url):
     try:
         print(f"📡 RSS: {url}")
+
         feed = feedparser.parse(url)
 
         results = []
 
         for e in feed.entries:
             results.append({
-                "title": e.title,
-                "link": e.link,
+                "title": getattr(e, "title", ""),
+                "link": getattr(e, "link", ""),
                 "source": url
             })
 
@@ -89,44 +115,93 @@ def get_rss(url):
         return []
 
 # =========================
-# 🏛️ Government Tenders Collector
+# 🧠 BASIC FILTER
 # =========================
-def get_government_tenders():
+KEYWORDS = [
+    "مقاولات", "توريد", "إنشاء", "بناء",
+    "construction", "tender", "project",
+    "bid", "procurement"
+]
+
+def is_valid(title):
+    if not title:
+        return False
+    return any(k.lower() in title.lower() for k in KEYWORDS)
+
+# =========================
+# 🏛️ GOVERNMENT
+# =========================
+def etenders():
     print("🏛️ COLLECTING GOVERNMENT TENDERS...")
-    all_data = []
+    data = []
 
     for site in GOV_SITES:
-        all_data.extend(scrape_site(site))
+        data += scrape_site(site)
 
-    return all_data
-
-# =========================
-# 📰 News Collector
-# =========================
-def get_news():
-    print("📰 COLLECTING NEWS FEEDS...")
-    all_data = []
-
-    for feed in RSS_FEEDS + ARABIC_FEEDS:
-        all_data.extend(get_rss(feed))
-
-    return all_data
+    return data
 
 # =========================
-# 🧠 Main Collector
+# 🔍 GOOGLE (simple fallback)
+# =========================
+def search_google():
+    try:
+        print("🔍 GOOGLE SEARCH...")
+
+        url = "https://www.google.com/search?q=construction+tenders+projects"
+        res = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        results = []
+
+        for a in soup.find_all("a"):
+            text = a.get_text()
+
+            if text and is_valid(text):
+                results.append({
+                    "title": text,
+                    "source": "google"
+                })
+
+        print(f"📥 GOOGLE RESULTS: {len(results)}")
+        return results
+
+    except Exception as e:
+        print(f"❌ GOOGLE ERROR: {e}")
+        return []
+
+# =========================
+# 🚀 FULL COLLECTOR
 # =========================
 def collect_all_sources():
     print("🚀 START COLLECTING ALL SOURCES")
 
-    gov = get_government_tenders()
-    news = get_news()
+    data = []
 
-    all_results = gov + news
+    # 🏛️ Government
+    for site in GOV_SITES:
+        data += scrape_site(site)
 
-    print("=" * 40)
-    print(f"📊 GOV: {len(gov)}")
-    print(f"📰 NEWS: {len(news)}")
-    print(f"📦 TOTAL: {len(all_results)}")
-    print("=" * 40)
+    # 📰 RSS
+    for feed in RSS_FEEDS + ARABIC_FEEDS:
+        data += get_rss(feed)
 
-    return all_results
+    # 📰 News sites
+    for site in NEWS_SITES:
+        data += scrape_site(site)
+
+    # 💬 Forums
+    for site in FORUM_SITES:
+        data += scrape_site(site)
+
+    # 📱 Social
+    for site in SOCIAL_SITES:
+        data += scrape_site(site)
+
+    print(f"📦 TOTAL COLLECTED: {len(data)}")
+
+    # optional filter
+    filtered = [d for d in data if is_valid(d.get("title", ""))]
+
+    print(f"🧠 AFTER FILTER: {len(filtered)}")
+
+    return filtered
