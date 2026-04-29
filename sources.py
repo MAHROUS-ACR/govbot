@@ -1,96 +1,73 @@
 import requests
 import feedparser
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 # =========================
-# 🏛️ Government Tender Sites
+# 🌐 GOVERNMENT + TENDER SOURCES
 # =========================
 GOV_SITES = [
     "https://etenders.gov.eg",
-    "https://www.tendersinfo.com",
     "https://www.dgmarket.com/tenders",
     "https://www.devbusiness.com",
-    "https://www.globaltenders.com",
+    "https://www.tendersinfo.com",
 ]
 
 # =========================
-# 📰 RSS News (Construction + Economy)
+# 📰 RSS SOURCES (NEWS + CONSTRUCTION)
 # =========================
 RSS_FEEDS = [
     "https://feeds.bbci.co.uk/news/rss.xml",
     "https://www.constructionnews.co.uk/feed/",
     "https://www.globalconstructionreview.com/feed/",
-    "https://www.devex.com/feed/news",
 ]
 
-# =========================
-# 🌍 Arabic News
-# =========================
-ARABIC_FEEDS = [
-    "https://www.youm7.com/rss",
-    "https://www.masrawy.com/rss/rssfeeds",
-]
 
 # =========================
-# 📰 Extra News Sites (HTML)
-# =========================
-NEWS_SITES = [
-    "https://www.albawaba.com/rss.xml",
-    "https://www.thenationalnews.com/arc/outboundfeeds/rss/",
-    "https://www.arabnews.com/rss.xml",
-]
-
-# =========================
-# 💬 Forums
-# =========================
-FORUM_SITES = [
-    "https://www.skyscrapercity.com/forums/construction.123/",
-    "https://www.eng-tips.com/threadminder.cfm",
-]
-
-# =========================
-# 📱 Social Media Searches
-# =========================
-SOCIAL_SITES = [
-    "https://twitter.com/search?q=construction%20tender",
-    "https://twitter.com/search?q=مناقصات%20مقاولات",
-    "https://www.linkedin.com/jobs/search/?keywords=construction%20tender",
-]
-
-# =========================
-# 🔧 HTTP Scraper
+# 🔥 CLEAN SCRAPER (IMPORTANT FIX)
 # =========================
 def scrape_site(url):
     try:
         print(f"🌐 SCRAPING: {url}")
 
-        res = requests.get(url, headers=HEADERS, timeout=10)
+        res = requests.get(url, headers=HEADERS, timeout=15)
         soup = BeautifulSoup(res.text, "html.parser")
 
         results = []
 
-        for a in soup.find_all("a"):
-            title = a.get_text(strip=True)
-            link = a.get("href")
+        # ❌ تجاهل menus / nav / footer
+        bad_keywords = ["menu", "home", "about", "contact", "login", "register"]
 
-            if title and len(title) > 8:
-                results.append({
-                    "title": title,
-                    "link": link,
-                    "source": url
-                })
+        for a in soup.select("a[href]"):
+            title = a.get_text(" ", strip=True)
+            href = a.get("href")
 
-        print(f"📥 FOUND: {len(results)}")
+            if not title or len(title) < 15:
+                continue
+
+            if any(b in title.lower() for b in bad_keywords):
+                continue
+
+            full_link = urljoin(url, href)
+
+            results.append({
+                "title": title,
+                "link": full_link,
+                "source": url
+            })
+
+        print(f"📥 FOUND: {len(results)} items")
         return results
 
     except Exception as e:
-        print(f"❌ SCRAPE ERROR {url}: {e}")
+        print(f"❌ ERROR {url}: {e}")
         return []
 
+
 # =========================
-# 📡 RSS Reader
+# 📡 RSS
 # =========================
 def get_rss(url):
     try:
@@ -98,110 +75,54 @@ def get_rss(url):
 
         feed = feedparser.parse(url)
 
-        results = []
-
-        for e in feed.entries:
-            results.append({
-                "title": getattr(e, "title", ""),
-                "link": getattr(e, "link", ""),
+        return [
+            {
+                "title": e.title,
+                "link": e.link,
                 "source": url
-            })
-
-        print(f"📥 RSS ITEMS: {len(results)}")
-        return results
+            }
+            for e in feed.entries
+            if hasattr(e, "title")
+        ]
 
     except Exception as e:
-        print(f"❌ RSS ERROR {url}: {e}")
+        print(f"❌ RSS ERROR: {e}")
         return []
 
-# =========================
-# 🧠 BASIC FILTER
-# =========================
-KEYWORDS = [
-    "مقاولات", "توريد", "إنشاء", "بناء",
-    "construction", "tender", "project",
-    "bid", "procurement"
-]
-
-def is_valid(title):
-    if not title:
-        return False
-    return any(k.lower() in title.lower() for k in KEYWORDS)
 
 # =========================
-# 🏛️ GOVERNMENT
+# 🏛️ GOV TENDERS (ALL)
 # =========================
-def etenders():
-    print("🏛️ COLLECTING GOVERNMENT TENDERS...")
-    data = []
+def get_government_tenders():
+    print("🏛️ COLLECTING GOV TENDERS...")
+    all_data = []
 
     for site in GOV_SITES:
-        data += scrape_site(site)
+        all_data.extend(scrape_site(site))
 
-    return data
+    return all_data
 
-# =========================
-# 🔍 GOOGLE (simple fallback)
-# =========================
-def search_google():
-    try:
-        print("🔍 GOOGLE SEARCH...")
-
-        url = "https://www.google.com/search?q=construction+tenders+projects"
-        res = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-
-        results = []
-
-        for a in soup.find_all("a"):
-            text = a.get_text()
-
-            if text and is_valid(text):
-                results.append({
-                    "title": text,
-                    "source": "google"
-                })
-
-        print(f"📥 GOOGLE RESULTS: {len(results)}")
-        return results
-
-    except Exception as e:
-        print(f"❌ GOOGLE ERROR: {e}")
-        return []
 
 # =========================
-# 🚀 FULL COLLECTOR
+# 📰 NEWS
+# =========================
+def get_news():
+    print("📰 COLLECTING NEWS...")
+    all_data = []
+
+    for feed in RSS_FEEDS:
+        all_data.extend(get_rss(feed))
+
+    return all_data
+
+
+# =========================
+# 🚀 MASTER COLLECTOR
 # =========================
 def collect_all_sources():
-    print("🚀 START COLLECTING ALL SOURCES")
+    print("🚀 MASTER COLLECTOR START")
 
-    data = []
+    gov = get_government_tenders()
+    news = get_news()
 
-    # 🏛️ Government
-    for site in GOV_SITES:
-        data += scrape_site(site)
-
-    # 📰 RSS
-    for feed in RSS_FEEDS + ARABIC_FEEDS:
-        data += get_rss(feed)
-
-    # 📰 News sites
-    for site in NEWS_SITES:
-        data += scrape_site(site)
-
-    # 💬 Forums
-    for site in FORUM_SITES:
-        data += scrape_site(site)
-
-    # 📱 Social
-    for site in SOCIAL_SITES:
-        data += scrape_site(site)
-
-    print(f"📦 TOTAL COLLECTED: {len(data)}")
-
-    # optional filter
-    filtered = [d for d in data if is_valid(d.get("title", ""))]
-
-    print(f"🧠 AFTER FILTER: {len(filtered)}")
-
-    return filtered
+    return gov + news
