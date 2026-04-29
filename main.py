@@ -1,162 +1,126 @@
 import hashlib
-import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from firebase_config import db
 from sources import collect_all_sources
-from parser import classify, extract_company
+from parser import classify, extract_company, extract_date
 
 
 # ======================
-# 🇪🇬 FILTER EGYPT ONLY
-# ======================
-EGYPT_KEYWORDS = [
-    "مصر",
-    "egypt",
-    "القاهرة",
-    "alexandria",
-    "etenders",
-    "وزارة",
-    "هيئة",
-    "حكومي"
-]
-
-
-def is_egypt_related(text, source=""):
-    text = (text or "").lower()
-    source = (source or "").lower()
-
-    return any(k in text for k in EGYPT_KEYWORDS) or "eg" in source or "egypt" in source
-
-
-# ======================
-# BUSINESS KEYWORDS
+# 🔥 KEYWORDS (TENDERS ONLY)
 # ======================
 KEYWORDS = [
-    "مقاولات",
-    "توريدات",
-    "إنشاء",
-    "بناء",
-    "صيانة",
-    "معدات",
-    "خامات",
+    "tender",
+    "tenders",
+    "bid",
+    "bidding",
+    "procurement",
     "مناقصة",
-    "tender"
+    "توريد",
+    "مقاولات",
+    "إنشاء",
+    "صيانة",
+    "مشروع"
 ]
 
 
-def is_valid(text):
-    text = (text or "").lower()
-    return any(k.lower() in text for k in KEYWORDS)
+# ======================
+# ❌ FILTER OUT MENUS / HEADERS
+# ======================
+def is_not_menu(text):
+    bad = [
+        "home", "about", "contact", "login",
+        "register", "privacy", "terms",
+        "menu", "breadcrumb"
+    ]
+    return not any(b in text.lower() for b in bad)
 
 
 # ======================
-# ID GENERATOR
+# ✅ REAL TENDER DETECTOR (IMPORTANT FIX)
+# ======================
+def is_real_tender(item):
+    text = (item.get("title", "") + " " + item.get("source", "")).lower()
+
+    return (
+        any(k in text for k in KEYWORDS) and
+        is_not_menu(text) and
+        len(item.get("title", "")) > 20
+    )
+
+
+# ======================
+# ID
 # ======================
 def generate_id(text):
     return hashlib.md5(text.encode()).hexdigest()
 
 
 # ======================
-# DATE EXTRACTION
-# ======================
-def extract_dates(text):
-    text = (text or "").lower()
-
-    # محاولة استخراج مدة مثل "10 days"
-    days_match = re.search(r"(\d+)\s*(يوم|days|day)", text)
-
-    if days_match:
-        days = int(days_match.group(1))
-        deadline = datetime.utcnow() + timedelta(days=days)
-    else:
-        deadline = None
-
-    return {
-        "published_at": datetime.utcnow(),
-        "deadline": deadline.isoformat() if deadline else None
-    }
-
-
-# ======================
-# COLLECT DATA
+# COLLECT
 # ======================
 def collect():
-    print("\n🚀 STEP 1: COLLECTING DATA")
-    print("=" * 50)
+    print("\n🚀 STEP 1: COLLECT ALL SOURCES")
 
     data = collect_all_sources()
 
-    print(f"\n📥 TOTAL COLLECTED: {len(data)}")
-    print("=" * 50)
-
+    print("📥 RAW:", len(data))
     return data
 
 
 # ======================
-# FILTER DATA
+# FILTER (IMPORTANT FIX)
 # ======================
 def filter_data(data):
-    print("\n🧠 STEP 2: FILTERING DATA (EGYPT ONLY)")
-    print("=" * 50)
+    print("\n🧠 STEP 2: FILTER REAL TENDERS ONLY")
 
     filtered = []
 
     for item in data:
         title = item.get("title", "")
-        source = item.get("source", "")
 
-        if is_egypt_related(title, source) and is_valid(title):
+        if is_real_tender(item):
             filtered.append(item)
-            print("✔ KEEP:", title[:90])
+            print("✔ TENDER:", title[:90])
         else:
             print("❌ SKIP:", title[:90])
 
-    print(f"\n✅ FILTERED TOTAL: {len(filtered)}")
-    print("=" * 50)
-
+    print("\n✅ FINAL:", len(filtered))
     return filtered
 
 
 # ======================
-# SAVE TO FIRESTORE
+# SAVE (FULL DETAILS)
 # ======================
 def save(data):
-    print("\n💾 STEP 3: SAVING TO FIRESTORE")
-    print("=" * 50)
+    print("\n💾 STEP 3: SAVE TO FIRESTORE")
 
     saved = 0
 
     for item in data:
         title = item.get("title", "")
         link = item.get("link", "")
-        source = item.get("source", "")
 
-        doc_id = generate_id(title + str(link))
+        doc_id = generate_id(title + link)
         ref = db.collection("tenders").document(doc_id)
 
         if ref.get().exists:
-            print("🔁 DUPLICATE:", title[:70])
             continue
-
-        dates = extract_dates(title)
 
         record = {
             "title": title,
             "link": link,
-            "source": source,
+            "source": item.get("source"),
 
-            # 📅 dates
-            "published_at": dates["published_at"],
-            "deadline": dates["deadline"],
-
-            # 🧠 extracted info
+            # 🧠 AI parsing (لو عندك parser قوي)
             "company": extract_company(title),
             "type": classify(title),
 
-            # 🇪🇬 metadata
-            "country": "Egypt",
-            "is_egypt": True,
+            # 📅 dates
+            "published_date": extract_date(title),
+            "deadline": None,
+
+            "country": "Unknown",
 
             "created_at": datetime.utcnow()
         }
@@ -165,11 +129,8 @@ def save(data):
         saved += 1
 
         print("✔ SAVED:", title[:90])
-        print("📅 DEADLINE:", record["deadline"])
 
-    print("\n🎯 TOTAL SAVED:", saved)
-    print("=" * 50)
-
+    print("\n🎯 SAVED:", saved)
     return saved
 
 
@@ -179,7 +140,7 @@ def save(data):
 if __name__ == "__main__":
 
     print("\n================================")
-    print("🚀 TENDER BOT STARTED (EGYPT MODE)")
+    print("🚀 PRO TENDER BOT")
     print("================================")
 
     raw = collect()
@@ -187,8 +148,8 @@ if __name__ == "__main__":
     saved = save(filtered)
 
     print("\n================================")
-    print("🏁 FINISHED RUN")
-    print("📥 RAW:", len(raw))
-    print("🧠 FILTERED:", len(filtered))
-    print("💾 SAVED:", saved)
-    print("================================\n")
+    print("🏁 DONE")
+    print("RAW:", len(raw))
+    print("FILTERED:", len(filtered))
+    print("SAVED:", saved)
+    print("================================")
