@@ -2,7 +2,7 @@ import hashlib
 from datetime import datetime
 
 from firebase_config import db
-from sources import scrape_site, search_google, etenders
+from sources import etenders, search_google
 from parser import classify, extract_company, extract_date
 
 
@@ -20,39 +20,54 @@ KEYWORDS = [
 ]
 
 
+# ======================
+# CHECK VALIDITY
+# ======================
 def is_valid(text):
     return any(k in text for k in KEYWORDS)
 
 
+# ======================
+# ID GENERATOR
+# ======================
 def generate_id(text):
     return hashlib.md5(text.encode()).hexdigest()
 
 
 # ======================
-# COLLECT
+# COLLECT DATA
 # ======================
 def collect():
-    print("🚀 STEP 1: Collecting data...")
+    print("\n🚀 STEP 1: COLLECTING DATA")
+    print("=" * 40)
+
+    et = etenders()
+    print("🏛️ ETENDERS RAW OUTPUT:")
+    print(et)
+
+    gg = search_google()
+    print("\n🌐 GOOGLE RAW OUTPUT:")
+    print(gg)
 
     all_data = []
 
-    et = etenders()
-    print(f"🏛️ Government data: {len(et)}")
-    all_data += et
+    if et:
+        all_data += et
+    if gg:
+        all_data += gg
 
-    gg = search_google()
-    print(f"🌐 Google data: {len(gg)}")
-    all_data += gg
+    print("\n📥 TOTAL COLLECTED:", len(all_data))
+    print("=" * 40)
 
-    print(f"📥 TOTAL collected: {len(all_data)}")
     return all_data
 
 
 # ======================
-# FILTER
+# FILTER DATA
 # ======================
 def filter_data(data):
-    print("🧠 STEP 2: Filtering data...")
+    print("\n🧠 STEP 2: FILTERING DATA")
+    print("=" * 40)
 
     filtered = []
 
@@ -61,18 +76,22 @@ def filter_data(data):
 
         if is_valid(title):
             filtered.append(item)
+            print("✔ KEEP:", title[:80])
         else:
-            print(f"❌ Skipped: {title[:50]}")
+            print("❌ SKIP:", title[:80])
 
-    print(f"✅ Filtered result: {len(filtered)}")
+    print("\n✅ FILTERED TOTAL:", len(filtered))
+    print("=" * 40)
+
     return filtered
 
 
 # ======================
-# SAVE
+# SAVE TO FIRESTORE
 # ======================
 def save(data):
-    print("💾 STEP 3: Saving to Firestore...")
+    print("\n💾 STEP 3: SAVING TO FIRESTORE")
+    print("=" * 40)
 
     saved = 0
 
@@ -83,7 +102,7 @@ def save(data):
         ref = db.collection("tenders").document(doc_id)
 
         if ref.get().exists:
-            print(f"🔁 Duplicate skipped: {title[:40]}")
+            print("🔁 DUPLICATE:", title[:70])
             continue
 
         record = {
@@ -99,9 +118,11 @@ def save(data):
         ref.set(record)
         saved += 1
 
-        print(f"✔ Saved: {title[:60]}")
+        print("✔ SAVED:", title[:80])
 
-    print(f"🎯 TOTAL saved: {saved}")
+    print("\n🎯 TOTAL SAVED:", saved)
+    print("=" * 40)
+
     return saved
 
 
@@ -109,17 +130,18 @@ def save(data):
 # MAIN
 # ======================
 if __name__ == "__main__":
-    print("===================================")
+
+    print("\n================================")
     print("🚀 TENDER BOT STARTED")
-    print("===================================")
+    print("================================")
 
     raw = collect()
     filtered = filter_data(raw)
     saved = save(filtered)
 
-    print("===================================")
+    print("\n================================")
     print("🏁 FINISHED RUN")
-    print(f"📥 Raw: {len(raw)}")
-    print(f"🧠 Filtered: {len(filtered)}")
-    print(f"💾 Saved: {saved}")
-    print("===================================")
+    print("📥 RAW:", len(raw))
+    print("🧠 FILTERED:", len(filtered))
+    print("💾 SAVED:", saved)
+    print("================================\n")
