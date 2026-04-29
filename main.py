@@ -2,12 +2,12 @@ import hashlib
 from datetime import datetime
 
 from firebase_config import db
-from sources import scrape_site, get_rss, search_google, etenders
+from sources import scrape_site, search_google, etenders
 from parser import classify, extract_company, extract_date
 
 
 # ======================
-# KEYWORDS FILTER
+# KEYWORDS
 # ======================
 KEYWORDS = [
     "مقاولات",
@@ -29,34 +29,22 @@ def generate_id(text):
 
 
 # ======================
-# COLLECT DATA
+# COLLECT
 # ======================
 def collect():
+    print("🚀 STEP 1: Collecting data...")
+
     all_data = []
 
-    # حكومي
-    all_data += etenders()
+    et = etenders()
+    print(f"🏛️ Government data: {len(et)}")
+    all_data += et
 
-    # Google
-    all_data += search_google()
+    gg = search_google()
+    print(f"🌐 Google data: {len(gg)}")
+    all_data += gg
 
-    # مواقع إضافية (تقدر تزود)
-    sites = [
-        "https://example.com",
-        "https://another-site.com"
-    ]
-
-    for site in sites:
-        all_data += scrape_site(site)
-
-    # RSS (اختياري)
-    rss_links = [
-        # "https://site.com/rss"
-    ]
-
-    for rss in rss_links:
-        all_data += get_rss(rss)
-
+    print(f"📥 TOTAL collected: {len(all_data)}")
     return all_data
 
 
@@ -64,28 +52,41 @@ def collect():
 # FILTER
 # ======================
 def filter_data(data):
-    return [d for d in data if is_valid(d.get("title", ""))]
+    print("🧠 STEP 2: Filtering data...")
 
-
-# ======================
-# SAVE TO FIRESTORE
-# ======================
-def save(data):
-    new_items = 0
+    filtered = []
 
     for item in data:
         title = item.get("title", "")
 
-        if not title:
-            continue
+        if is_valid(title):
+            filtered.append(item)
+        else:
+            print(f"❌ Skipped: {title[:50]}")
+
+    print(f"✅ Filtered result: {len(filtered)}")
+    return filtered
+
+
+# ======================
+# SAVE
+# ======================
+def save(data):
+    print("💾 STEP 3: Saving to Firestore...")
+
+    saved = 0
+
+    for item in data:
+        title = item.get("title", "")
 
         doc_id = generate_id(title)
         ref = db.collection("tenders").document(doc_id)
 
         if ref.get().exists:
+            print(f"🔁 Duplicate skipped: {title[:40]}")
             continue
 
-        ref.set({
+        record = {
             "title": title,
             "company": extract_company(title),
             "type": classify(title),
@@ -93,26 +94,32 @@ def save(data):
             "link": item.get("link"),
             "source": item.get("source"),
             "created_at": datetime.utcnow()
-        })
+        }
 
-        new_items += 1
+        ref.set(record)
+        saved += 1
 
-    return new_items
+        print(f"✔ Saved: {title[:60]}")
+
+    print(f"🎯 TOTAL saved: {saved}")
+    return saved
 
 
 # ======================
-# RUN BOT
+# MAIN
 # ======================
 if __name__ == "__main__":
-    print("🚀 BOT STARTED")
+    print("===================================")
+    print("🚀 TENDER BOT STARTED")
+    print("===================================")
 
     raw = collect()
-    print("📥 Collected:", len(raw))
-
     filtered = filter_data(raw)
-    print("🧠 Filtered:", len(filtered))
-
     saved = save(filtered)
-    print("💾 New saved:", saved)
 
-    print("✅ DONE")
+    print("===================================")
+    print("🏁 FINISHED RUN")
+    print(f"📥 Raw: {len(raw)}")
+    print(f"🧠 Filtered: {len(filtered)}")
+    print(f"💾 Saved: {saved}")
+    print("===================================")
