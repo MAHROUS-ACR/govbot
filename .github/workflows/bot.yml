@@ -2,7 +2,7 @@ name: Tender Bot
 
 on:
   schedule:
-    - cron: "*/10 * * * *"  # كل 10 دقايق
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -23,8 +23,5 @@ jobs:
 
       - name: Run bot
         env:
-          FIREBASE_TYPE: ${{ secrets.FIREBASE_TYPE }}
-          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-          FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
-          FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
+          FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
         run: python main.py
