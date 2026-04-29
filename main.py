@@ -7,52 +7,33 @@ from parser import classify, extract_company, extract_date
 
 
 # ======================
-# 🔥 KEYWORDS (TENDERS ONLY)
+# 🇪🇬 EGYPT FILTER
 # ======================
-KEYWORDS = [
-    "tender",
-    "tenders",
-    "bid",
-    "bidding",
-    "procurement",
-    "مناقصة",
-    "توريد",
-    "مقاولات",
-    "إنشاء",
-    "صيانة",
-    "مشروع"
-]
+EGYPT_KEYS = ["مصر", "egypt", "القاهرة", "giza"]
+
+
+def is_egypt(item):
+    text = (item.get("title","") + item.get("source","")).lower()
+    return any(k in text for k in EGYPT_KEYS)
 
 
 # ======================
-# ❌ FILTER OUT MENUS / HEADERS
+# REAL TENDER CHECK
 # ======================
-def is_not_menu(text):
-    bad = [
-        "home", "about", "contact", "login",
-        "register", "privacy", "terms",
-        "menu", "breadcrumb"
-    ]
-    return not any(b in text.lower() for b in bad)
-
-
-# ======================
-# ✅ REAL TENDER DETECTOR (IMPORTANT FIX)
-# ======================
-def is_real_tender(item):
-    text = (item.get("title", "") + " " + item.get("source", "")).lower()
-
+def is_tender(text):
+    t = text.lower()
     return (
-        any(k in text for k in KEYWORDS) and
-        is_not_menu(text) and
-        len(item.get("title", "")) > 20
+        "tender" in t or
+        "مناقصة" in t or
+        "bid" in t or
+        "procurement" in t
     )
 
 
 # ======================
 # ID
 # ======================
-def generate_id(text):
+def gen_id(text):
     return hashlib.md5(text.encode()).hexdigest()
 
 
@@ -60,67 +41,73 @@ def generate_id(text):
 # COLLECT
 # ======================
 def collect():
-    print("\n🚀 STEP 1: COLLECT ALL SOURCES")
-
+    print("🚀 COLLECTING ALL SOURCES...")
     data = collect_all_sources()
-
-    print("📥 RAW:", len(data))
+    print("RAW:", len(data))
     return data
 
 
 # ======================
-# FILTER (IMPORTANT FIX)
+# FILTER
 # ======================
 def filter_data(data):
-    print("\n🧠 STEP 2: FILTER REAL TENDERS ONLY")
+    print("\n🧠 FILTERING (EGYPT ONLY)")
 
-    filtered = []
+    out = []
 
     for item in data:
-        title = item.get("title", "")
-
-        if is_real_tender(item):
-            filtered.append(item)
-            print("✔ TENDER:", title[:90])
+        if is_egypt(item) and is_tender(item.get("title","")):
+            out.append(item)
+            print("✔ KEEP:", item["title"][:90])
         else:
-            print("❌ SKIP:", title[:90])
+            print("❌ SKIP:", item["title"][:90])
 
-    print("\n✅ FINAL:", len(filtered))
-    return filtered
+    return out
 
 
 # ======================
-# SAVE (FULL DETAILS)
+# SAVE TO FIRESTORE
 # ======================
 def save(data):
-    print("\n💾 STEP 3: SAVE TO FIRESTORE")
+    print("\n💾 SAVING...")
 
     saved = 0
 
     for item in data:
-        title = item.get("title", "")
-        link = item.get("link", "")
+        title = item["title"]
+        link = item.get("link","")
+        source = item.get("source","")
 
-        doc_id = generate_id(title + link)
+        doc_id = gen_id(title + link)
         ref = db.collection("tenders").document(doc_id)
 
         if ref.get().exists:
             continue
 
+        # ⭐ scoring system
+        score = 0
+        if "مناقصة" in title:
+            score += 3
+        if "tender" in title.lower():
+            score += 2
+        if "gov" in source:
+            score += 2
+        if extract_date(title):
+            score += 2
+
         record = {
             "title": title,
             "link": link,
-            "source": item.get("source"),
+            "pdf_link": None,   # 👈 جاهز للـ upgrade لاحقاً
+            "source": source,
 
-            # 🧠 AI parsing (لو عندك parser قوي)
             "company": extract_company(title),
             "type": classify(title),
-
-            # 📅 dates
             "published_date": extract_date(title),
             "deadline": None,
 
-            "country": "Unknown",
+            "country": "Egypt",
+            "score": score,
 
             "created_at": datetime.utcnow()
         }
@@ -128,9 +115,9 @@ def save(data):
         ref.set(record)
         saved += 1
 
-        print("✔ SAVED:", title[:90])
+        print(f"✔ SAVED (score {score}):", title[:90])
 
-    print("\n🎯 SAVED:", saved)
+    print("\nDONE SAVED:", saved)
     return saved
 
 
@@ -139,17 +126,17 @@ def save(data):
 # ======================
 if __name__ == "__main__":
 
-    print("\n================================")
-    print("🚀 PRO TENDER BOT")
-    print("================================")
+    print("\n====================")
+    print("🚀 PRO TENDER SYSTEM")
+    print("====================")
 
     raw = collect()
     filtered = filter_data(raw)
     saved = save(filtered)
 
-    print("\n================================")
-    print("🏁 DONE")
+    print("\n====================")
+    print("FINISHED")
     print("RAW:", len(raw))
     print("FILTERED:", len(filtered))
     print("SAVED:", saved)
-    print("================================")
+    print("====================")
